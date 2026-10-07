@@ -1,0 +1,19 @@
+# OPCIONAL: úsalo solo si NO tienes SQL Server 2025 instalado en Windows.
+# Levanta un SQL Server 2025 Developer en Docker (puerto 1433).
+#   docker compose up -d
+# Luego aplica el esquema y crea el login (ver README).
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2025-latest
+    container_name: ragchat-sql
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: "Developer"
+      MSSQL_SA_PASSWORD: "RagChat_Dev_2026!"
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqldata:/var/opt/mssql
+
+volumes:
+  sqldata:
