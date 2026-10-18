@@ -1,0 +1,169 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Si llega un push nuevo a la misma rama, cancela la ejecución anterior
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: 22
+  PYTHON_VERSION: '3.12'
+
+jobs:
+  # ---------------------------------------------------------------- Node / Next.js
+  web:
+    name: Web (lint, tipos, tests unitarios, build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Lint y formato (Biome)
+        run: npm run lint
+      - name: Tipos (tsc)
+        run: npm run typecheck
+      - name: Tests unitarios con cobertura mínima
+        run: npm run test:coverage
+      - name: Build de producción
+        run: npm run build
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-web
+          path: coverage/
+          retention-days: 7
+
+  # ---------------------------------------------------------------- Python / FastAPI
+  analytics:
+    name: Analytics (ruff, pytest con cobertura)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: analytics
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: analytics/requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - name: Lint (ruff)
+        run: ruff check .
+      - name: Formato (ruff format)
+        run: ruff format --check .
+      - name: Tests con cobertura mínima del 85 %
+        run: pytest --cov=app --cov-report=term-missing --cov-fail-under=85
+
+  # ---------------------------------------------------------------- Contrato Node <-> Python
+  contract:
+    name: Contrato OpenAPI ↔ TypeScript
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: analytics/requirements.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: pip install -r analytics/requirements.txt
+      - name: El OpenAPI commiteado coincide con FastAPI
+        run: python analytics/scripts/check_contract.py
+      - name: Los tipos de TypeScript coinciden con el OpenAPI
+        run: |
+          npx -y openapi-typescript@7.13.0 analytics/openapi.json -o lib/analytics-api.d.ts
+          git diff --exit-code lib/analytics-api.d.ts || {
+            echo "::error::lib/analytics-api.d.ts está desactualizado. Ejecuta npm run gen:analytics-types y commitea el resultado."
+            exit 1
+          }
+
+  # ---------------------------------------------------------------- Integración con SQL Server 2025
+  integration:
+    name: Integración (SQL Server 2025 real)
+    runs-on: ubuntu-latest
+    needs: [web, analytics]
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2025-latest
+        env:
+          ACCEPT_EULA: 'Y'
+          MSSQL_PID: Developer
+          # Contenedor desechable que solo existe durante este job
+          MSSQL_SA_PASSWORD: RagChat_Ci_2026!
+        ports:
+          - 1433:1433
+    env:
+      TEST_DB_SERVER: localhost
+      TEST_DB_PORT: 1433
+      TEST_DB_NAME: RagChat_Test
+      TEST_DB_USER: sa
+      TEST_DB_PASSWORD: RagChat_Ci_2026!
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: analytics/requirements-dev.txt
+      - run: npm ci
+      - run: pip install -r analytics/requirements-dev.txt
+      - name: Driver ODBC 18 para SQL Server
+        run: |
+          if odbcinst -q -d -n "ODBC Driver 18 for SQL Server" >/dev/null 2>&1; then
+            echo "Ya instalado"
+          else
+            curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | sudo tee /etc/apt/trusted.gpg.d/microsoft.asc >/dev/null
+            curl -fsSL "https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/prod.list" | sudo tee /etc/apt/sources.list.d/mssql-release.list
+            sudo apt-get update
+            sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 unixodbc
+          fi
+      - name: Crear la base de pruebas desde db/*.sql
+        run: npm run db:test
+      - name: Tests de integración de Node (VECTOR, cascada, consultas, feedback)
+        run: npm run test:integration
+      - name: Tests de integración de Python (repositorio pyodbc)
+        working-directory: analytics
+        run: pytest -m integration -v
+
+  # ---------------------------------------------------------------- Seguridad
+  security:
+    name: Seguridad (secretos y dependencias)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # gitleaks revisa todo el historial
+      - name: Secretos en el repositorio (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Vulnerabilidades altas en dependencias de producción (npm)
+        run: npm audit --omit=dev --audit-level=high
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Vulnerabilidades en dependencias de Python
+        run: |
+          pip install pip-audit
+          pip-audit -r analytics/requirements.txt

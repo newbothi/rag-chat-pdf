@@ -1,0 +1,13 @@
+# Saltos de línea LF en el repositorio y en la copia de trabajo (igual en Windows, Linux y CI).
+* text=auto eol=lf
+
+# Binarios: Git nunca debe tocar sus bytes
+*.pdf binary
+*.png binary
+*.jpg binary
+*.ico binary
+*.joblib binary
+
+# Scripts de Windows sí necesitan CRLF
+*.cmd text eol=crlf
+*.bat text eol=crlf
