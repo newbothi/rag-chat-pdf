@@ -3,7 +3,73 @@
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
 import { useEffect, useRef, useState } from 'react';
-import type { ChatMessage, Source } from '@/lib/types';
+import type { ChatMessage, ChatMetadata, Source } from '@/lib/types';
+
+const CONFIDENCE_STYLE = {
+  alta: { icon: '●', text: 'Confianza alta', className: 'text-[#006300] dark:text-[#0ca30c]' },
+  media: { icon: '◐', text: 'Confianza media', className: 'text-[#8a5a00] dark:text-[#fab219]' },
+  baja: { icon: '○', text: 'Confianza baja: revisa las fuentes', className: 'text-[#b02e2e] dark:text-[#e66767]' },
+} as const;
+
+/** Probabilidad estimada (por el servicio Python) de que la respuesta sea útil, calculada antes de generarla. */
+function Confidence({ confidence }: { confidence?: ChatMetadata['confidence'] }) {
+  if (!confidence) return null;
+  const style = CONFIDENCE_STYLE[confidence.level];
+  const how =
+    confidence.model === 'logistic'
+      ? 'Regresión logística entrenada con el feedback de los usuarios'
+      : 'Estimación inicial por similitud (aún no hay suficiente feedback para entrenar el modelo)';
+  return (
+    <p className={`mt-2 text-xs font-medium ${style.className}`} title={how}>
+      <span aria-hidden>{style.icon}</span> {style.text} · {Math.round(confidence.probability * 100)}%
+    </p>
+  );
+}
+
+function Feedback({ queryId }: { queryId: string }) {
+  const [sent, setSent] = useState<1 | -1 | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  async function send(value: 1 | -1) {
+    setSent(value);
+    setFailed(false);
+    const res = await fetch('/api/feedback', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ queryId, value }),
+    }).catch(() => null);
+    if (!res?.ok) {
+      setSent(null);
+      setFailed(true);
+    }
+  }
+
+  const base = 'rounded-md px-2 py-1 text-sm transition disabled:cursor-default';
+  return (
+    <div className="mt-2 flex items-center gap-1 text-xs text-zinc-500">
+      <span className="mr-1">{sent ? '¡Gracias!' : '¿Te sirvió?'}</span>
+      <button
+        type="button"
+        aria-label="Respuesta útil"
+        disabled={sent !== null}
+        onClick={() => send(1)}
+        className={`${base} ${sent === 1 ? 'bg-zinc-200 dark:bg-zinc-700' : sent ? 'opacity-30' : 'hover:bg-zinc-100 dark:hover:bg-zinc-800'}`}
+      >
+        👍
+      </button>
+      <button
+        type="button"
+        aria-label="Respuesta no útil"
+        disabled={sent !== null}
+        onClick={() => send(-1)}
+        className={`${base} ${sent === -1 ? 'bg-zinc-200 dark:bg-zinc-700' : sent ? 'opacity-30' : 'hover:bg-zinc-100 dark:hover:bg-zinc-800'}`}
+      >
+        👎
+      </button>
+      {failed && <span className="text-red-600">No se pudo enviar</span>}
+    </div>
+  );
+}
 
 export function Chat({ documentIds, hasDocuments }: { documentIds: string[]; hasDocuments: boolean }) {
   const [input, setInput] = useState('');
@@ -15,6 +81,7 @@ export function Chat({ documentIds, hasDocuments }: { documentIds: string[]; has
 
   const busy = status === 'submitted' || status === 'streaming';
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: se desplaza cada vez que cambian los mensajes (también durante el streaming)
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
@@ -53,12 +120,21 @@ export function Chat({ documentIds, hasDocuments }: { documentIds: string[]; has
             >
               {m.parts.map((p, i) =>
                 p.type === 'text' ? (
+                  // biome-ignore lint/suspicious/noArrayIndexKey: las partes de un mensaje no tienen id y solo se agregan al final
                   <p key={i} className="whitespace-pre-wrap leading-relaxed">
                     {p.text}
                   </p>
                 ) : null,
               )}
-              {m.role === 'assistant' && <Sources sources={m.metadata?.sources} />}
+              {m.role === 'assistant' && (
+                <>
+                  <Confidence confidence={m.metadata?.confidence} />
+                  <Sources sources={m.metadata?.sources} />
+                  {m.metadata?.queryId && !(busy && m.id === messages.at(-1)?.id) && (
+                    <Feedback queryId={m.metadata.queryId} />
+                  )}
+                </>
+              )}
             </div>
           </div>
         ))}
@@ -89,7 +165,12 @@ export function Chat({ documentIds, hasDocuments }: { documentIds: string[]; has
           </button>
         )}
         {messages.length > 0 && !busy && (
-          <button type="button" onClick={() => setMessages([])} className="px-2 text-sm text-zinc-500" title="Nueva conversación">
+          <button
+            type="button"
+            onClick={() => setMessages([])}
+            className="px-2 text-sm text-zinc-500"
+            title="Nueva conversación"
+          >
             Limpiar
           </button>
         )}

@@ -34,5 +34,12 @@ export function getPool() {
   return globalForDb.pool;
 }
 
+/** Cierra el pool y limpia la caché (tests y apagado ordenado). */
+export async function closePool() {
+  const pending = globalForDb.pool;
+  globalForDb.pool = undefined;
+  if (pending) await (await pending).close();
+}
+
 /** Convierte un embedding al formato JSON que SQL Server convierte a VECTOR: '[0.1,0.2,...]' */
 export const toVectorJson = (v: number[]) => JSON.stringify(v);

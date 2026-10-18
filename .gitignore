@@ -5,3 +5,15 @@ out
 .env
 *.tsbuildinfo
 next-env.d.ts
+
+# Python (analytics)
+analytics/.venv/
+__pycache__/
+.pytest_cache/
+analytics/models/
+analytics/.env
+
+# Tests
+coverage/
+analytics/.coverage
+analytics/htmlcov/

@@ -1,0 +1,15 @@
+# Reglas por defecto de gitleaks + excepciones para valores de ejemplo conocidos.
+# Cualquier clave real que se suba por error sigue siendo detectada.
+title = "rag-chat-pdf"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Placeholders documentados y credenciales de contenedores desechables (dev/CI)"
+regexes = [
+  '''CambiaEstaClave(_Test)?_123''',
+  '''cambia-este-secreto''',
+  '''RagChat_(Dev|Ci)_2026!''',
+  '''unit-test-key''',
+]

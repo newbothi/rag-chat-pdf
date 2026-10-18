@@ -1,0 +1,893 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "RAG Chat Analytics",
+    "description": "Temas sin cobertura y confianza de respuestas para el chat con PDFs.",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Health",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Health Health Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/confidence/predict": {
+      "post": {
+        "summary": "Predict",
+        "operationId": "predict_confidence_predict_post",
+        "parameters": [
+          {
+            "name": "x-analytics-key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Analytics-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QueryFeatures"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfidencePrediction"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/confidence/train": {
+      "post": {
+        "summary": "Train",
+        "operationId": "train_confidence_train_post",
+        "parameters": [
+          {
+            "name": "x-analytics-key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Analytics-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/confidence/report": {
+      "get": {
+        "summary": "Confidence Report",
+        "operationId": "confidence_report_confidence_report_get",
+        "parameters": [
+          {
+            "name": "x-analytics-key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Analytics-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfidenceReport"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/report": {
+      "get": {
+        "summary": "Report",
+        "operationId": "report_report_get",
+        "parameters": [
+          {
+            "name": "include_synthetic",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Include Synthetic"
+            }
+          },
+          {
+            "name": "x-analytics-key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Analytics-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalyticsReport"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AnalyticsReport": {
+        "properties": {
+          "overview": {
+            "$ref": "#/components/schemas/Overview"
+          },
+          "topics": {
+            "$ref": "#/components/schemas/TopicsReport"
+          },
+          "confidence": {
+            "$ref": "#/components/schemas/ConfidenceReport"
+          }
+        },
+        "type": "object",
+        "required": [
+          "overview",
+          "topics",
+          "confidence"
+        ],
+        "title": "AnalyticsReport"
+      },
+      "Coefficient": {
+        "properties": {
+          "feature": {
+            "type": "string",
+            "title": "Feature"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "value": {
+            "type": "number",
+            "title": "Value",
+            "description": "Coeficiente con features estandarizadas (log-odds por desviación estándar)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "feature",
+          "label",
+          "value"
+        ],
+        "title": "Coefficient"
+      },
+      "ConfidencePrediction": {
+        "properties": {
+          "probability": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Probability",
+            "description": "Probabilidad estimada de feedback positivo"
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "alta",
+              "media",
+              "baja"
+            ],
+            "title": "Level"
+          },
+          "model": {
+            "type": "string",
+            "enum": [
+              "logistic",
+              "heuristic"
+            ],
+            "title": "Model"
+          }
+        },
+        "type": "object",
+        "required": [
+          "probability",
+          "level",
+          "model"
+        ],
+        "title": "ConfidencePrediction"
+      },
+      "ConfidenceReport": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "enum": [
+              "logistic",
+              "heuristic"
+            ],
+            "title": "Model"
+          },
+          "trained_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trained At"
+          },
+          "labeled_samples": {
+            "type": "integer",
+            "title": "Labeled Samples"
+          },
+          "positive_samples": {
+            "type": "integer",
+            "title": "Positive Samples"
+          },
+          "negative_samples": {
+            "type": "integer",
+            "title": "Negative Samples"
+          },
+          "synthetic_samples": {
+            "type": "integer",
+            "title": "Synthetic Samples"
+          },
+          "min_samples_required": {
+            "type": "integer",
+            "title": "Min Samples Required"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason",
+            "description": "Por qué se usa la heurística, si aplica"
+          },
+          "cv_folds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cv Folds"
+          },
+          "cv_auc": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cv Auc"
+          },
+          "baseline_auc": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Auc",
+            "description": "AUC usando solo la similitud del mejor fragmento"
+          },
+          "cv_accuracy": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cv Accuracy"
+          },
+          "cv_brier": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cv Brier"
+          },
+          "confusion": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConfusionMatrix"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "coefficients": {
+            "items": {
+              "$ref": "#/components/schemas/Coefficient"
+            },
+            "type": "array",
+            "title": "Coefficients",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "model",
+          "trained_at",
+          "labeled_samples",
+          "positive_samples",
+          "negative_samples",
+          "synthetic_samples",
+          "min_samples_required"
+        ],
+        "title": "ConfidenceReport"
+      },
+      "ConfusionMatrix": {
+        "properties": {
+          "true_positive": {
+            "type": "integer",
+            "title": "True Positive"
+          },
+          "false_positive": {
+            "type": "integer",
+            "title": "False Positive"
+          },
+          "true_negative": {
+            "type": "integer",
+            "title": "True Negative"
+          },
+          "false_negative": {
+            "type": "integer",
+            "title": "False Negative"
+          }
+        },
+        "type": "object",
+        "required": [
+          "true_positive",
+          "false_positive",
+          "true_negative",
+          "false_negative"
+        ],
+        "title": "ConfusionMatrix"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "Overview": {
+        "properties": {
+          "total_queries": {
+            "type": "integer",
+            "title": "Total Queries"
+          },
+          "synthetic_queries": {
+            "type": "integer",
+            "title": "Synthetic Queries"
+          },
+          "with_feedback": {
+            "type": "integer",
+            "title": "With Feedback"
+          },
+          "positive_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Positive Rate"
+          },
+          "avg_top_similarity": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Top Similarity"
+          },
+          "avg_latency_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Latency Ms"
+          },
+          "low_coverage_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Low Coverage Rate",
+            "description": "Proporción de consultas cuyo mejor fragmento no supera el umbral de cobertura"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total_queries",
+          "synthetic_queries",
+          "with_feedback",
+          "positive_rate",
+          "avg_top_similarity",
+          "avg_latency_ms"
+        ],
+        "title": "Overview"
+      },
+      "QueryFeatures": {
+        "properties": {
+          "top_similarity": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": -1.0,
+            "title": "Top Similarity"
+          },
+          "avg_similarity": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": -1.0,
+            "title": "Avg Similarity"
+          },
+          "similarity_spread": {
+            "type": "number",
+            "maximum": 2.0,
+            "minimum": 0.0,
+            "title": "Similarity Spread"
+          },
+          "chunks_above_threshold": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Chunks Above Threshold"
+          },
+          "distinct_pages": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Distinct Pages"
+          },
+          "question_words": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Question Words"
+          },
+          "is_follow_up": {
+            "type": "boolean",
+            "title": "Is Follow Up"
+          },
+          "has_document_filter": {
+            "type": "boolean",
+            "title": "Has Document Filter"
+          }
+        },
+        "type": "object",
+        "required": [
+          "top_similarity",
+          "avg_similarity",
+          "similarity_spread",
+          "chunks_above_threshold",
+          "distinct_pages",
+          "question_words",
+          "is_follow_up",
+          "has_document_filter"
+        ],
+        "title": "QueryFeatures",
+        "description": "Métricas de la recuperación, conocidas ANTES de generar la respuesta."
+      },
+      "Topic": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label",
+            "description": "Pregunta más representativa del grupo"
+          },
+          "keywords": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Keywords"
+          },
+          "size": {
+            "type": "integer",
+            "title": "Size"
+          },
+          "share": {
+            "type": "number",
+            "title": "Share"
+          },
+          "avg_top_similarity": {
+            "type": "number",
+            "title": "Avg Top Similarity"
+          },
+          "low_coverage_rate": {
+            "type": "number",
+            "title": "Low Coverage Rate"
+          },
+          "feedback_count": {
+            "type": "integer",
+            "title": "Feedback Count"
+          },
+          "negative_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Negative Rate"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "sin_cobertura",
+              "parcial",
+              "cubierto"
+            ],
+            "title": "Status"
+          },
+          "gap_score": {
+            "type": "number",
+            "title": "Gap Score"
+          },
+          "examples": {
+            "items": {
+              "$ref": "#/components/schemas/TopicExample"
+            },
+            "type": "array",
+            "title": "Examples"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "keywords",
+          "size",
+          "share",
+          "avg_top_similarity",
+          "low_coverage_rate",
+          "feedback_count",
+          "negative_rate",
+          "status",
+          "gap_score",
+          "examples"
+        ],
+        "title": "Topic"
+      },
+      "TopicExample": {
+        "properties": {
+          "question": {
+            "type": "string",
+            "title": "Question"
+          },
+          "top_similarity": {
+            "type": "number",
+            "title": "Top Similarity"
+          },
+          "feedback": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feedback"
+          }
+        },
+        "type": "object",
+        "required": [
+          "question",
+          "top_similarity",
+          "feedback"
+        ],
+        "title": "TopicExample"
+      },
+      "TopicPoint": {
+        "properties": {
+          "x": {
+            "type": "number",
+            "title": "X"
+          },
+          "y": {
+            "type": "number",
+            "title": "Y"
+          },
+          "topic": {
+            "type": "integer",
+            "title": "Topic"
+          },
+          "question": {
+            "type": "string",
+            "title": "Question"
+          },
+          "top_similarity": {
+            "type": "number",
+            "title": "Top Similarity"
+          }
+        },
+        "type": "object",
+        "required": [
+          "x",
+          "y",
+          "topic",
+          "question",
+          "top_similarity"
+        ],
+        "title": "TopicPoint"
+      },
+      "TopicsReport": {
+        "properties": {
+          "method": {
+            "type": "string",
+            "title": "Method"
+          },
+          "clusters": {
+            "type": "integer",
+            "title": "Clusters"
+          },
+          "silhouette": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Silhouette"
+          },
+          "gap_threshold": {
+            "type": "number",
+            "title": "Gap Threshold"
+          },
+          "topics": {
+            "items": {
+              "$ref": "#/components/schemas/Topic"
+            },
+            "type": "array",
+            "title": "Topics"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/TopicPoint"
+            },
+            "type": "array",
+            "title": "Points"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "method",
+          "clusters",
+          "silhouette",
+          "gap_threshold",
+          "topics",
+          "points"
+        ],
+        "title": "TopicsReport"
+      },
+      "TrainResponse": {
+        "properties": {
+          "report": {
+            "$ref": "#/components/schemas/ConfidenceReport"
+          }
+        },
+        "type": "object",
+        "required": [
+          "report"
+        ],
+        "title": "TrainResponse"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}

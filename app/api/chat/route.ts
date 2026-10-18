@@ -1,7 +1,8 @@
 import { convertToModelMessages, streamText } from 'ai';
 import { chatModel, rewriteQuery } from '@/lib/ai';
+import { computeFeatures, logQuery, predictConfidence, saveAnswer } from '@/lib/analytics';
 import { searchChunks } from '@/lib/retrieval';
-import type { ChatMessage, Source } from '@/lib/types';
+import type { ChatMessage, ChatMetadata, Source } from '@/lib/types';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -13,8 +14,8 @@ const textOf = (m: ChatMessage) =>
     .join('\n');
 
 export async function POST(req: Request) {
-  const { messages, documentIds = [] }: { messages: ChatMessage[]; documentIds?: string[] } =
-    await req.json();
+  const startedAt = performance.now();
+  const { messages, documentIds = [] }: { messages: ChatMessage[]; documentIds?: string[] } = await req.json();
 
   const lastUser = [...messages].reverse().find((m) => m.role === 'user');
   const question = lastUser ? textOf(lastUser) : '';
@@ -28,24 +29,46 @@ export async function POST(req: Request) {
 
   // 1. Recuperación (Retrieval)
   const searchQuery = await rewriteQuery(history, question);
-  const chunks = question ? await searchChunks(searchQuery, { documentIds }) : [];
+  const search = question ? await searchChunks(searchQuery, { documentIds }) : null;
+  const chunks = search?.chunks ?? [];
 
   const sources: Source[] = chunks.map((c, i) => ({
     n: i + 1,
     documentId: c.documentId,
     documentName: c.documentName,
     page: c.page,
-    similarity: Number(c.similarity),
+    similarity: c.similarity,
     snippet: c.content.slice(0, 280),
   }));
 
+  // 2. Analítica: métricas de la recuperación → confianza (Python) → registro en dbo.Queries.
+  //    Nada de esto puede romper el chat: si falla, se responde igual, sin confianza ni feedback.
+  const metadata: ChatMetadata = { sources };
+  if (search) {
+    const features = computeFeatures(search.nearest, {
+      question,
+      isFollowUp: history.trim() !== '' && searchQuery.trim() !== question.trim(),
+      hasDocumentFilter: documentIds.length > 0,
+    });
+    const confidence = await predictConfidence(features);
+    const queryId = crypto.randomUUID();
+    try {
+      await logQuery({ id: queryId, question, searchQuery, embedding: search.embedding, features, confidence });
+      metadata.queryId = queryId;
+    } catch (err) {
+      console.warn(
+        '[analytics] No se pudo registrar la consulta (¿ejecutaste db/002-analytics.sql?):',
+        (err as Error).message,
+      );
+    }
+    metadata.confidence = confidence;
+  }
+
   const context = chunks.length
-    ? chunks
-        .map((c, i) => `[${i + 1}] (${c.documentName}, pág. ${c.page})\n${c.content}`)
-        .join('\n\n---\n\n')
+    ? chunks.map((c, i) => `[${i + 1}] (${c.documentName}, pág. ${c.page})\n${c.content}`).join('\n\n---\n\n')
     : 'NO SE ENCONTRÓ CONTEXTO RELEVANTE.';
 
-  // 2. Generación aumentada (Augmented Generation) en streaming
+  // 3. Generación aumentada (Augmented Generation) en streaming
   const result = streamText({
     model: chatModel,
     instructions: `Eres un asistente que responde preguntas usando EXCLUSIVAMENTE el contexto extraído de los documentos del usuario.
@@ -59,10 +82,16 @@ Reglas:
 Contexto:
 ${context}`,
     messages: await convertToModelMessages(messages),
+    onFinish: async ({ text }) => {
+      if (!metadata.queryId) return;
+      await saveAnswer(metadata.queryId, text, performance.now() - startedAt).catch((err) =>
+        console.warn('[analytics] No se pudo guardar la respuesta:', (err as Error).message),
+      );
+    },
   });
 
-  // 3. Las fuentes viajan como metadatos del mensaje para mostrarlas en la UI
+  // 4. Fuentes, id de la consulta y confianza viajan como metadatos del mensaje
   return result.toUIMessageStreamResponse<ChatMessage>({
-    messageMetadata: ({ part }) => (part.type === 'start' ? { sources } : undefined),
+    messageMetadata: ({ part }) => (part.type === 'start' ? metadata : undefined),
   });
 }

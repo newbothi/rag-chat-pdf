@@ -10,6 +10,15 @@ export type RetrievedChunk = {
   similarity: number;
 };
 
+export type SearchResult = {
+  /** Fragmentos que superan el umbral mínimo: son los que se pasan al modelo */
+  chunks: RetrievedChunk[];
+  /** Los k más cercanos sin filtrar: se usan para medir la calidad de la recuperación */
+  nearest: RetrievedChunk[];
+  /** Embedding de la consulta (se guarda en dbo.Queries para agrupar por tema) */
+  embedding: number[];
+};
+
 /**
  * Búsqueda semántica con el tipo VECTOR de SQL Server 2025:
  * devuelve los `k` fragmentos más cercanos a la pregunta (distancia coseno),
@@ -18,8 +27,8 @@ export type RetrievedChunk = {
 export async function searchChunks(
   query: string,
   { k = 6, documentIds = [] as string[], minSimilarity = 0.25 } = {},
-): Promise<RetrievedChunk[]> {
-  const queryVector = toVectorJson(await embedQuery(query));
+): Promise<SearchResult> {
+  const embedding = await embedQuery(query);
   const pool = await getPool();
 
   const filter = documentIds.length
@@ -30,7 +39,7 @@ export async function searchChunks(
   const { recordset } = await pool
     .request()
     .input('k', sql.Int, k)
-    .input('queryVector', sql.NVarChar(sql.MAX), queryVector)
+    .input('queryVector', sql.NVarChar(sql.MAX), toVectorJson(embedding))
     .input('documentIds', sql.NVarChar(sql.MAX), JSON.stringify(documentIds))
     .query<RetrievedChunk>(`
       DECLARE @q VECTOR(${EMBEDDING_DIMENSIONS}) = CAST(@queryVector AS VECTOR(${EMBEDDING_DIMENSIONS}));
@@ -49,5 +58,10 @@ export async function searchChunks(
       ORDER BY VECTOR_DISTANCE('cosine', c.Embedding, @q);
     `);
 
-  return recordset.filter((r) => Number(r.similarity) >= minSimilarity);
+  const nearest = recordset.map((r) => ({ ...r, similarity: Number(r.similarity) }));
+  return {
+    nearest,
+    chunks: nearest.filter((r) => r.similarity >= minSimilarity),
+    embedding,
+  };
 }

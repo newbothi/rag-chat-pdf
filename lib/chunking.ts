@@ -8,12 +8,15 @@ export type Chunk = {
 const SEPARATORS = ['\n\n', '\n', '. ', ' '];
 
 function normalize(text: string) {
-  return text
-    .replace(/\r/g, '')
-    .replace(/(\w)-\n(\w)/g, '$1$2') // une palabras cortadas con guion al final de línea
-    .replace(/[ \t]+/g, ' ')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
+  return (
+    text
+      .replace(/\r/g, '')
+      // Une palabras cortadas con guion al final de línea. \p{L} (no \w) para incluir tildes y ñ.
+      .replace(/(\p{L})-\n(\p{L})/gu, '$1$2')
+      .replace(/[ \t]+/g, ' ')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
+  );
 }
 
 /**
@@ -54,10 +57,7 @@ function splitRecursive(text: string, size: number, seps = SEPARATORS): string[]
  * Convierte las páginas del PDF en fragmentos de ~`size` caracteres
  * con `overlap` caracteres de solapamiento para no perder contexto en los bordes.
  */
-export function chunkPages(
-  pages: string[],
-  { size = 1000, overlap = 150, minLength = 40 } = {},
-): Chunk[] {
+export function chunkPages(pages: string[], { size = 1000, overlap = 150, minLength = 40 } = {}): Chunk[] {
   const result: Omit<Chunk, 'index'>[] = [];
 
   pages.forEach((raw, i) => {
@@ -67,7 +67,7 @@ export function chunkPages(
     const pieces = splitRecursive(text, size - overlap);
     pieces.forEach((piece, j) => {
       const prevTail = j > 0 ? pieces[j - 1].slice(-overlap) : '';
-      const content = (prevTail ? prevTail + ' ' : '') + piece;
+      const content = (prevTail ? `${prevTail} ` : '') + piece;
       if (content.trim().length >= minLength) {
         result.push({ content: content.trim(), page: i + 1 });
       }

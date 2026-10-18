@@ -1,4 +1,5 @@
 import type { UIMessage } from 'ai';
+import type { ConfidencePrediction } from './analytics';
 
 export type Source = {
   n: number;
@@ -9,8 +10,14 @@ export type Source = {
   snippet: string;
 };
 
-/** Mensaje del chat: los metadatos llevan las fuentes usadas para responder. */
-export type ChatMessage = UIMessage<{ sources?: Source[] }>;
+/** Metadatos de cada respuesta: fuentes usadas, id para el feedback y confianza estimada. */
+export type ChatMetadata = {
+  sources?: Source[];
+  queryId?: string;
+  confidence?: ConfidencePrediction | null;
+};
+
+export type ChatMessage = UIMessage<ChatMetadata>;
 
 export type DocumentRow = {
   id: string;

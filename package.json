@@ -4,10 +4,26 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:all": "concurrently -n web,analytics -c blue,yellow \"npm:dev\" \"npm:analytics\"",
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "db:up": "docker compose up -d"
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "test": "vitest run --project unit",
+    "test:watch": "vitest --project unit",
+    "test:coverage": "vitest run --project unit --coverage",
+    "test:integration": "vitest run --project integration",
+    "db:test": "node scripts/test-db.mjs",
+    "check": "npm run lint && npm run typecheck && npm run test:coverage && npm run analytics:lint && npm run analytics:test",
+    "analytics": "node scripts/py.mjs -m uvicorn app.main:app --port 8001 --reload",
+    "analytics:test": "node scripts/py.mjs -m pytest --cov=app --cov-fail-under=85",
+    "analytics:test:integration": "node scripts/py.mjs -m pytest -m integration -v",
+    "analytics:lint": "node scripts/py.mjs -m ruff check . && node scripts/py.mjs -m ruff format --check .",
+    "analytics:seed": "node scripts/py.mjs scripts/seed_synthetic.py",
+    "gen:analytics-types": "node scripts/py.mjs scripts/export_openapi.py && npx -y openapi-typescript@7.13.0 analytics/openapi.json -o lib/analytics-api.d.ts",
+    "db:up": "docker compose up -d",
+    "prepare": "husky"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^3.0.65",
@@ -21,13 +37,26 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.5.15",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/mssql": "^12.3.0",
     "@types/node": "^26.6.4",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "@vitest/coverage-v8": "^5.0.5",
+    "concurrently": "^10.0.5",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.4.0",
     "postcss": "^8.5.29",
     "tailwindcss": "^4.3.3",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,mjs,cjs,json,jsonc}": "biome check --write --no-errors-on-unmatched",
+    "analytics/**/*.py": [
+      "node scripts/py.mjs -m ruff check --fix",
+      "node scripts/py.mjs -m ruff format"
+    ]
   }
 }

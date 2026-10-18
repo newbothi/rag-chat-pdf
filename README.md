@@ -4,7 +4,7 @@ App de chat con IA sobre documentos: subes PDFs, se dividen en fragmentos, se ge
 
 Los modelos corren **localmente** (LM Studio u Ollama): gratis y sin enviar los documentos a ningún servicio externo. También funciona con OpenAI u otra API compatible.
 
-**Stack:** Next.js 16 (App Router) · TypeScript · AI SDK 7 (`ai`, `@ai-sdk/react`, `@ai-sdk/openai-compatible`) · SQL Server 2025 (`VECTOR(1024)` + `VECTOR_DISTANCE`) · `mssql` (SQL directo, sin ORM) · `unpdf` · Tailwind 4 · LM Studio / Ollama
+**Stack:** Next.js 16 (App Router) · TypeScript · Python (FastAPI, scikit-learn) · AI SDK 7 (`ai`, `@ai-sdk/react`, `@ai-sdk/openai-compatible`) · SQL Server 2025 (`VECTOR(1024)` + `VECTOR_DISTANCE`) · `mssql` (SQL directo, sin ORM) · `unpdf` · Tailwind 4 · LM Studio / Ollama
 
 ## Cómo funciona
 
@@ -67,6 +67,109 @@ npm run dev                      # http://localhost:3000
 
 Sube `docs/ejemplo/reglamento-interno-nimbus.pdf` (documento ficticio incluido) y pregunta, por ejemplo, *"¿Cuántos días de vacaciones tengo al año?"*.
 
+## Analítica con machine learning (Python)
+
+Un servicio aparte en **Python (FastAPI + scikit-learn)** analiza cómo se usa el chat. Next.js registra cada consulta en `dbo.Queries` (pregunta, embedding, métricas de la búsqueda, respuesta y feedback 👍/👎) y consume el servicio por HTTP interno, autenticado con un secreto compartido.
+
+```
+Next.js (Node) ──HTTP + X-Analytics-Key──▶ FastAPI (Python)
+      │  escribe dbo.Queries                    │  lee dbo.Queries
+      └──────────────── SQL Server 2025 ────────┘
+```
+
+**1. Temas sin cobertura**: agrupa las preguntas por significado con **KMeans sobre sus embeddings** (normalizados, equivalente a similitud coseno; *k* elegido por coeficiente de silueta) y, por tema, mide la similitud del mejor fragmento y la tasa de 👎. Los temas frecuentes, mal cubiertos y mal evaluados aparecen primero: es la lista de documentos que falta escribir. Cada tema se etiqueta con su pregunta más representativa y palabras clave por c-TF-IDF, y se muestra un mapa 2D (PCA).
+
+**2. Confianza de las respuestas**: una **regresión logística** predice, *antes de generar la respuesta*, la probabilidad de que sea útil a partir de cómo salió la búsqueda (similitud máxima y promedio, dispersión, fragmentos relevantes, páginas distintas, largo de la pregunta, si es de seguimiento, si hay filtro). Se evalúa con validación cruzada estratificada (AUC, exactitud, Brier, matriz de confusión) y se compara con un baseline que usa solo la similitud. Con menos de 20 respuestas evaluadas usa una heurística (arranque en frío). Se reentrena en segundo plano con cada 👍/👎.
+
+**Contrato tipado**: los modelos Pydantic de FastAPI se exportan a OpenAPI y de ahí se generan los tipos de TypeScript (`lib/analytics-api.d.ts`). Si Python cambia una respuesta, `tsc` lo detecta.
+
+**Tolerancia a fallos**: si el servicio Python está caído o tarda más de 1,5 s, el chat responde igual, sin el indicador de confianza.
+
+### Puesta en marcha de la analítica
+
+Requisitos: **Python 3.10+** y el driver **ODBC Driver 18 for SQL Server** (en PowerShell: `Get-OdbcDriver -Name "*SQL Server*"`; si no aparece, descárgalo de Microsoft).
+
+```bash
+# 1. Tabla de consultas (SSMS)
+#    ejecuta db/002-analytics.sql
+
+# 2. Entorno de Python (una sola vez)
+cd analytics
+python -m venv .venv
+.venv\Scripts\pip install -r requirements-dev.txt      # Linux/macOS: .venv/bin/pip
+cd ..
+
+# 3. En .env.local agrega ANALYTICS_URL y un ANALYTICS_API_KEY propio (ver .env.example)
+
+# 4. Levantar web + análisis juntos
+npm run dev:all
+```
+
+Panel: <http://localhost:3000/analytics>.
+
+| Comando | Qué hace |
+|---|---|
+| `npm run dev:all` | Next.js y FastAPI juntos |
+| `npm run analytics` | Solo el servicio Python (puerto 8001, docs en `/docs`) |
+| `npm run analytics:test` | Tests de Python (pytest) |
+| `npm run analytics:seed` | Genera ~75 consultas sintéticas (`-- --reset` para regenerarlas) |
+| `npm run gen:analytics-types` | Regenera los tipos de TypeScript desde el OpenAPI |
+
+**Datos sintéticos**: `analytics:seed` usa preguntas inventadas, pero sus embeddings y similitudes son reales (se buscan en tus documentos con la misma consulta que la app). Solo el feedback es simulado, con una regla conocida que depende de la similitud. Así se comprueba que el modelo aprende ese patrón y que el clustering detecta los temas que el reglamento de ejemplo no cubre (licencias médicas, sueldos, instalaciones). Requiere haber subido el PDF de ejemplo. Se guardan con `IsSynthetic = 1` y el panel permite excluirlos.
+
+## Calidad (QA y QC)
+
+![CI](https://github.com/newbothi/rag-chat-pdf/actions/workflows/ci.yml/badge.svg)
+
+Cada push y pull request ejecuta el pipeline de GitHub Actions (`.github/workflows/ci.yml`). Si un job falla, el PR queda en rojo.
+
+| Job | Qué verifica |
+|---|---|
+| **Web** | Lint y formato (Biome), tipos (`tsc`), tests unitarios con cobertura mínima, `next build` |
+| **Analytics** | Lint y formato (ruff, incluye reglas de seguridad), pytest con cobertura mínima del 85 % |
+| **Contrato** | Que `analytics/openapi.json` coincida con FastAPI y que `lib/analytics-api.d.ts` coincida con ese OpenAPI |
+| **Integración** | Levanta **SQL Server 2025 en Docker**, crea la base desde `db/*.sql` y prueba Node y Python contra la base real |
+| **Seguridad** | gitleaks (claves subidas por error en todo el historial), `npm audit` y `pip-audit` |
+
+Además, **Dependabot** propone actualizaciones de dependencias cada semana y un **hook de pre-commit** (husky + lint-staged) formatea y revisa los archivos modificados antes de cada commit.
+
+### Qué cubren los tests
+
+- **Unitarios de Node (Vitest)**:
+  - Fragmentación de texto: tamaños, solapamiento, que no se pierda contenido, palabras cortadas con guion (incluidas tildes y ñ).
+  - Métricas de recuperación y cliente del servicio Python, con su degradación si falla o la clave es inválida.
+  - Rutas de la API con validaciones e intentos de inyección.
+  - La ruta del chat completa con un LLM simulado (`MockLanguageModelV4`): fuentes, confianza, registro y que siga respondiendo si Python o el registro fallan.
+  - Extracción del PDF de ejemplo real.
+- **Unitarios de Python (pytest)**: el modelo de confianza recupera un patrón plantado (AUC > 0,8), el clustering detecta el tema sin cobertura, arranque en frío, persistencia, autenticación y validación de la API, y la cadena de conexión con caracteres especiales.
+- **Integración (SQL Server 2025 real)**:
+  - Ingesta del PDF con inserción en lotes en columnas `VECTOR(1024)`.
+  - Rollback si fallan los embeddings.
+  - Borrado en cascada.
+  - Búsqueda con `VECTOR_DISTANCE`: orden, `k`, filtro por documento y documentos no listos.
+  - Registro de consultas y feedback, incluida la restricción `CHECK`.
+  - El repositorio de Python leyendo el tipo `VECTOR` con pyodbc.
+
+### Correr los tests en local
+
+```bash
+npm test                 # unitarios de Node
+npm run test:coverage    # … con cobertura
+npm run analytics:test   # Python con cobertura
+npm run check            # todo lo anterior + lint y tipos (lo mismo que el CI, sin integración)
+```
+
+**Integración** (usa una base aparte, `RagChat_Test`, que se borra y recrea en cada ejecución):
+
+1. En SSMS, ejecuta `db/test-login.sql`. Crea el login `rag_test`, que puede crear bases pero no tocar `RagChat`.
+2. Copia `.env.test.example` a `.env.test.local` y pon la clave.
+3. Ejecuta:
+
+```bash
+npm run test:integration                              # Node
+npm run db:test && npm run analytics:test:integration      # Python
+```
+
 ## Configuración (`.env.local`)
 
 | Variable             | Ejemplo                       | Descripción                                                    |
@@ -82,6 +185,10 @@ Sube `docs/ejemplo/reglamento-interno-nimbus.pdf` (documento ficticio incluido) 
 | `EMBEDDING_BASE_URL` | `http://localhost:1234/v1`    | Servidor de embeddings                                         |
 | `EMBEDDING_MODEL`    | `text-embedding-bge-m3`       | En Ollama: `bge-m3`                                            |
 | `MAX_UPLOAD_MB`      | `20`                          | Tamaño máximo del PDF                                          |
+| `ANALYTICS_URL`      | `http://localhost:8001`       | Servicio Python                                                |
+| `ANALYTICS_API_KEY`  | *(secreto largo)*             | Lo comparten Next.js y Python                                  |
+| `RELEVANCE_THRESHOLD`| `0.5`                         | Similitud mínima para que un fragmento cuente como relevante   |
+| `GAP_THRESHOLD`      | `0.5`                         | Bajo esta similitud media, un tema queda "sin cobertura"       |
 
 Los cambios en `.env.local` se leen al arrancar: reinicia `npm run dev` después de editarlo.
 
@@ -102,12 +209,32 @@ lib/
   pdf.ts         Extracción de texto por página (unpdf)
   retrieval.ts   Búsqueda vectorial con VECTOR_DISTANCE (coseno)
   db.ts          Pool de conexión a SQL Server
+  analytics.ts   Cliente del servicio Python, features de recuperación, registro de consultas
+  analytics-api.d.ts  Tipos generados desde el OpenAPI de FastAPI
+analytics/                      Servicio Python (FastAPI + scikit-learn)
+  app/main.py        Endpoints y autenticación
+  app/confidence.py  Regresión logística, validación cruzada, arranque en frío
+  app/topics.py      Clustering de preguntas, c-TF-IDF, PCA, detección de huecos
+  app/repository.py  SQL directo con pyodbc
+  scripts/           Generador de datos sintéticos y exportador de OpenAPI
+  tests/             pytest (modelos y API)
 db/
   schema.sql              Base RagChat, tablas Documents/Chunks
   create-login.sql        Login de la app
+  002-analytics.sql       Tabla Queries para la analítica
+  test-login.sql          Login para los tests de integración
   migrate-ollama-1024.sql Migración desde una versión anterior con embeddings de 1536 dimensiones
 docs/ejemplo/
   reglamento-interno-nimbus.pdf  Documento ficticio para probar
+tests/
+  unit/          Vitest: lógica, rutas de la API y chat con LLM simulado
+  integration/   Vitest contra SQL Server 2025 real
+scripts/
+  test-db.mjs    Crea la base de pruebas desde db/*.sql
+  py.mjs         Ejecuta el Python del entorno virtual (Windows/Linux)
+.github/
+  workflows/ci.yml   Pipeline de CI
+  dependabot.yml     Actualizaciones de dependencias
 ```
 
 ## Cambiar de modelo o proveedor
@@ -128,4 +255,4 @@ docs/ejemplo/
 4. **Re-ranking** de los fragmentos recuperados.
 5. **Multiempresa:** autenticación + columna `TenantId` en `Documents`.
 6. **Historial persistente** de conversaciones.
-7. **Dashboard en Power BI** sobre preguntas, documentos consultados y fragmentos más usados.
+7. **Dashboard en Power BI** conectado directamente a `dbo.Queries`.

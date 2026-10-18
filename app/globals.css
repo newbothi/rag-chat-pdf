@@ -1,1 +1,31 @@
 @import "tailwindcss";
+
+/* Tokens de los gráficos del panel de analítica (paleta validada, claro/oscuro) */
+:root {
+  --viz-surface: #fcfcfb;
+  --viz-grid: #e4e3dd;
+  --viz-axis: #c3c2b7;
+  --viz-muted: #898781;
+  --viz-ink: #0b0b0b;
+  --viz-ink-2: #52514e;
+  --viz-seq: #2a78d6;
+  --viz-pos: #2a78d6;
+  --viz-neg: #e34948;
+  --status-good: #0ca30c;
+  --status-warning: #fab219;
+  --status-critical: #d03b3b;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --viz-surface: #1a1a19;
+    --viz-grid: #2a2a28;
+    --viz-axis: #383835;
+    --viz-muted: #898781;
+    --viz-ink: #ffffff;
+    --viz-ink-2: #c3c2b7;
+    --viz-seq: #3987e5;
+    --viz-pos: #3987e5;
+    --viz-neg: #e66767;
+  }
+}
