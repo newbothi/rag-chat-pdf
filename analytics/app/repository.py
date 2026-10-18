@@ -4,6 +4,7 @@ protocolo `Repository`, así los tests usan un repositorio en memoria."""
 from __future__ import annotations
 
 import json
+from contextlib import closing
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -55,7 +56,9 @@ class SqlServerRepository:
     def _connect(self):
         import pyodbc  # import diferido: los tests no necesitan el driver ODBC
 
-        return pyodbc.connect(self._cs, timeout=5)
+        # Solo lecturas: autocommit evita transacciones implícitas abiertas, y closing()
+        # cierra la conexión de verdad (el `with` de pyodbc solo hace commit, no la cierra).
+        return closing(pyodbc.connect(self._cs, timeout=5, autocommit=True))
 
     def labeled_samples(self) -> list[LabeledSample]:
         # Los nombres de columna salen de un diccionario fijo del código, nunca de la entrada del usuario
