@@ -67,7 +67,7 @@ def insert(db, *, question: str, top: float, feedback: int | None, synthetic: bo
             ChunksAboveThreshold, DistinctPages, QuestionWords, IsFollowUp, HasDocumentFilter,
             LatencyMs, Feedback, IsSynthetic
         )
-        VALUES (?, ?, ?, CAST(? AS VECTOR(1024)), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, CAST(CAST(? AS NVARCHAR(MAX)) AS VECTOR(1024)), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         query_id, question, question, json.dumps(embedding.tolist()),
         top, top - 0.1, 0.2, 3, 2, len(question.split()), 1, 0, 1500, feedback, 1 if synthetic else 0,

@@ -126,6 +126,9 @@ QUESTIONS: dict[str, list[str]] = {
 
 TOP_K = 6
 
+# pyodbc envía los textos largos (como un embedding en JSON) como ntext, y SQL Server no
+# permite ntext → VECTOR. Por eso se convierte primero a NVARCHAR(MAX): CAST(CAST(? AS NVARCHAR(MAX)) AS VECTOR(1024)).
+
 
 def connect():
     import pyodbc
@@ -144,7 +147,7 @@ def embed(texts: list[str]) -> list[list[float]]:
 def retrieve(cur, vector_json: str) -> list[tuple[int, float]]:
     rows = cur.execute(
         """
-        DECLARE @q VECTOR(1024) = CAST(? AS VECTOR(1024));
+        DECLARE @q VECTOR(1024) = CAST(CAST(? AS NVARCHAR(MAX)) AS VECTOR(1024));
         SELECT TOP (?) c.Page, 1 - VECTOR_DISTANCE('cosine', c.Embedding, @q) AS Similarity
         FROM dbo.Chunks c
         JOIN dbo.Documents d ON d.Id = c.DocumentId
@@ -208,7 +211,7 @@ def main() -> None:
                     QuestionWords, IsFollowUp, HasDocumentFilter,
                     Answer, LatencyMs, Feedback, FeedbackAt, IsSynthetic, CreatedAt
                 )
-                VALUES (NEWID(), ?, ?, CAST(? AS VECTOR(1024)), ?, ?, ?, ?, ?, ?, 0, 0,
+                VALUES (NEWID(), ?, ?, CAST(CAST(? AS NVARCHAR(MAX)) AS VECTOR(1024)), ?, ?, ?, ?, ?, ?, 0, 0,
                         N'(respuesta sintética)', ?, ?, CASE WHEN ? IS NULL THEN NULL ELSE SYSUTCDATETIME() END, 1, ?)
                 """,
                 question,
