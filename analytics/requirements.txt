@@ -1,5 +1,5 @@
 fastapi>=0.143.2
-uvicorn[standard]>=0.30
+uvicorn[standard]>=0.54.0
 scikit-learn>=1.5
 numpy>=2.5.4
 pyodbc>=5.1
